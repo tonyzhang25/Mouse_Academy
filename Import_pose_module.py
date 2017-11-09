@@ -4,12 +4,18 @@ import numpy as np
 import cv2
 from numpy.linalg import norm
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 import matplotlib.gridspec as gridspec
 import math
 from matplotlib import animation
 import pdb
 import scipy.io as sio
-
+import plotly
+plotly.tools.set_credentials_file(username='tonyzhang', api_key='6zoZzkCL9hqQSWDOj0xq')
+import plotly.plotly as py
+from plotly.graph_objs import *
+import matplotlib.patches as patches
+from numpy import diff, where, split
 
 class Load_Pose():
 
@@ -112,12 +118,21 @@ class VideoCapture():
         return avg_brightness
         # block is a RGB patch in shape (x-dim, y-dim, 3)
 
-    def show_clip(self, start, end):
-        plt.figure()
+    def show_clip(self, start, end, interval = 1000/30, repeat = False, save = False):
+        ims = []
+        fig = plt.figure("Animation")
+        ax = fig.add_subplot(111)
+        ax.axis('off')
+        print('Animating..')
         for i in range(start, end+1):
-            plt.ion()
-            plt.imshow(self.capture_frame(i))
-            plt.pause(0.001)
+            img = Video.capture_frame(i)
+            frame_i = ax.imshow(img)
+            label = ax.annotate(i, (10,40), color = 'white', size = 15)
+            ims.append([frame_i, label])
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        Anim = animation.ArtistAnimation(fig, ims, interval = interval, blit = True, repeat = repeat)
+        if save: Anim.save(str(start) + '_' + str(end) + '.mp4')
+        return Anim
 
 
 class Smooth_Keypoints():
@@ -205,7 +220,7 @@ class Analysis():
         self.embedded = TSNE(n_components=2, verbose = True, perplexity = perplexity).fit_transform(data) # fit tSNE
         self.plot_tSNE(label, behavior_window, end_frame, step)
 
-    def tSNE_test_intertrial(self, behavior_window, label, trial_history, speed, padding): # TEST INTERTRIAL TSNE. group with other functions
+    def tSNE_test_intertrial(self, behavior_window, trial_history, speed, padding, label = True): # TEST INTERTRIAL TSNE. group with other functions
         ''' positions only '''
         self.compute_orientation()
         centroids = self.centroids
@@ -214,9 +229,9 @@ class Analysis():
         step = behavior_window//2
         if speed:
             self.compute_speed_from_centroids()
-            (data, behavior_window) = self.compile_intertrial_data_tSNE_orientation_speed(trial_history, step, behavior_window, orientations)
+            (data, behavior_window) = self.compile_intertrial_data_dimreduction_orientation_speed(trial_history, step, behavior_window, orientations)
         else:
-            (data, behavior_window) = self.compile_intertrial_data_tSNE_positions(trial_history, step, behavior_window,
+            (data, behavior_window) = self.compile_intertrial_data_dimreduction_positions(trial_history, step, behavior_window,
                                                                                   orientations, padding)
         self.embedded = TSNE(n_components=2, verbose = True).fit_transform(data) # fit tSNE (sklearn)
         self.plot_tSNE_intertrial(label, behavior_window, trial_history, step)
@@ -230,12 +245,12 @@ class Analysis():
         step = behavior_window//2
         if speed:
             self.compute_speed_from_centroids()
-            (data, behavior_window) = self.compile_intertrial_data_tSNE_orientation_speed(trial_history, step, behavior_window, orientations)
+            (data, behavior_window) = self.compile_intertrial_data_dimreduction_orientation_speed(trial_history, step, behavior_window, orientations)
         else:
-            (data, behavior_window) = self.compile_intertrial_data_tSNE_positions(trial_history, step, behavior_window,
+            (data, behavior_window) = self.compile_intertrial_data_dimreduction_positions(trial_history, step, behavior_window,
                                                                                   orientations, padding)
-        self.embedded = TSNE(n_components=2, verbose = True).fit_transform(data) # fit tSNE (sklearn)
-        self.plot_tSNE_intertrial(label, behavior_window, trial_history, step)
+        self.embedded = PCA(n_components=2).fit_transform(data) # fit tSNE (sklearn)
+        self.plot_PCA_intertrial(label, behavior_window, trial_history, step)
 
     def compile_data_tSNE_positions(self, end_frame, step, behavior_window): # compile all data from all frames
         data = np.zeros((np.size(range(0, end_frame, step)), 3 * behavior_window))
@@ -253,7 +268,7 @@ class Analysis():
             data[count] = np.concatenate((speeds_flattened, orientations_flattened))
         return data
 
-    # def compile_intertrial_data_tSNE_positions(self, trial_history, step, behavior_window, orientations): # only compile relevant features after
+    # def compile_intertrial_data_dimreduction_positions(self, trial_history, step, behavior_window, orientations): # only compile relevant features after
     #     inter_trial_durations = trial_history[1:-1,0] - trial_history[0:-2,0]
     #     min_trial_duration = np.min(inter_trial_durations)
     #     behavior_window = min_trial_duration
@@ -265,7 +280,7 @@ class Analysis():
     #         data[i] = np.concatenate((centroids_flattened, orientations_flattened))
     #     return data, behavior_window
 
-    def compile_intertrial_data_tSNE_positions(self, trial_history, step, behavior_window, orientations, padding): # only compile relevant features after
+    def compile_intertrial_data_dimreduction_positions(self, trial_history, step, behavior_window, orientations, padding): # only compile relevant features after
 
         inter_trial_durations = trial_history[1:,0] - trial_history[0:-1,0]
         last_trial_duration = self.frames - trial_history[-1, 0]
@@ -297,7 +312,7 @@ class Analysis():
                 data[i] = np.concatenate((centroids_flattened, orientations_flattened))
         return data, behavior_window
 
-    def compile_intertrial_data_tSNE_orientation_speed(self, trial_history, step, behavior_window, orientations): # only compile relevant features after
+    def compile_intertrial_data_dimreduction_orientation_speed(self, trial_history, step, behavior_window, orientations): # only compile relevant features after
         inter_trial_durations = trial_history[1:,0] - trial_history[0:-1,0]
         min_trial_duration = np.min(inter_trial_durations)
         behavior_window = min_trial_duration
@@ -333,6 +348,20 @@ class Analysis():
                 ''' note: this annotation is for the frames in the VIDEO, NOT indices of the centroids / orientations! 
                 Remember to subtract by shift '''
 
+    def plot_PCA_intertrial(self, label, behavior_window, trial_history, step):
+        embedded = self.embedded
+        print('Plotting..')
+        plt.figure()
+        plt.title('PCA Inter-trial (window = '+str(behavior_window)+')')
+        trial_types = trial_history[:,1]
+        frames = trial_history[:,0]
+        plt.scatter(embedded[:,0], embedded[:,1], cmap = 'winter', c = trial_types)
+        if label:
+            for count, frame in enumerate(frames):
+                plt.annotate(frame,(embedded[count,0], embedded[count,1]), fontsize = 6)
+                ''' note: this annotation is for the frames in the VIDEO, NOT indices of the centroids / orientations! 
+                Remember to subtract by shift '''
+
     def compute_speed_from_centroids(self):
         centroids = self.centroids
         speeds = np.zeros(self.frames-1)
@@ -351,11 +380,11 @@ class Analysis():
 class LED_Sync(): # this class outputs the trials' start and end frames in the video
     # point of synchrony = first cue light as detected in function 'compute_first_trial_frame'
     def __init__(self, file):
-        self.LED_timestamps = sio.loadmat(file)['LED_timestamps']
+        self.LED_timestamps = sio.loadmat(file)['LED_timeDelay']
         self.frame_rate = 30 # per second
-        self.LED_frames = self.convert_to_frames(self.LED_timestamps) # discounting all flashes that did not indicate start
+        self.LED_frames = self.convert_to_frames(self.LED_timestamps)
 
-    def convert_to_frames(self, timestamps):
+    def convert_to_frames(self, timestamps): # convert matfile timestamps to video frames
         frames = timestamps * self.frame_rate
         frames = np.ceil(frames)
         return frames
@@ -365,8 +394,48 @@ class LED_Sync(): # this class outputs the trials' start and end frames in the v
         plt.plot(Video.all_LED_lum)
         shifted_LED_frames = self.LED_frames + shift
         plt.scatter(shifted_LED_frames, 56*np.ones(self.LED_frames.size), color = 'red', s = 2)
-# LED_MATFILE = LED_Sync('LED_Test_for_Tony_20171029/LED_matfiles/LED_flash_MATFILE_Animal4_LearnWNSide2AFC_20171028_160531.mat')
-# LED_MATFILE.comparison_plots(LED_Video,-5900)
+        
+    def comparison_plot(self, LED_lum, title, shift = 0):
+        '''
+        plots all LED luminance (not detection) against the actual timestamps from the mat files,
+        then plot it all on pylot (login to see changes)
+        '''
+        data = []
+        max_LED_lum = max(LED_lum)
+        LED_frames_zeroed = self.LED_frames - self.LED_frames[0,0]
+        for i in range(LED_frames_zeroed.shape[0]):
+            trace = Scatter(x = LED_frames_zeroed[i] + shift,
+                            y = [max_LED_lum+1, max_LED_lum+1],
+                            line = dict(color = ('rgb(205, 12, 24)')))
+            data.append(trace)
+        trace = Scatter(y=LED_lum, line = dict(color = 'black'))
+        data.append(trace)
+        layout = Layout(
+            title=title,
+            xaxis=dict(title='Frames'),
+            yaxis=dict(title='Average luminance'))
+        py.iplot(Figure(data=data, layout=layout), filename=title)
+
+    def extract_flashframes_from_luminance(self, LED_lum):
+        threshold = 150 # this threshold MUST be high. Otherwise, cannot distinguish b/w 2 consecutive lights
+        LED_flashes = []
+        for i, lum_i in enumerate(LED_lum):
+            if lum_i > threshold:
+                LED_flashes.append(i)
+        # Group these into trials
+        LED_flashes_bytrial = split(LED_flashes, where(diff(LED_flashes)>1)[0]+1)
+        return LED_flashes_bytrial
+
+    def align_LED_video_with_matfile(self, LED_lum, trial1_in_video_that_correspond_to_matfile):
+        LED_flashes_bytrial = self.extract_flashframes_from_luminance(LED_lum)
+        first_trial, last_trial = LED_flashes_bytrial[0][0], LED_flashes_bytrial[-1][0]
+        diff_frames = last_trial - first_trial
+        diff_times = self.LED_timestamps[-1, 0] - self.LED_timestamps[trial1_in_video_that_correspond_to_matfile-1, 0]
+        callibrated_frame_rate = diff_frames / diff_times
+        self.frame_rate = callibrated_frame_rate  # update frame rate
+        self.LED_frames = self.convert_to_frames(self.LED_timestamps) # recompute frames from timestamps
+        self.shift = self.LED_frames[-1,0] - LED_flashes_bytrial[-1][0]
+
 
 class Plot(): # all plot related functions
 
@@ -485,9 +554,98 @@ class Plot(): # all plot related functions
                     plt.annotate(frame, (4, 85), fontsize=9, color='white')
                 plt.pause(0.0001)
 
+    def animate_multi_view_beta(self, start, duration, centroids, keypoints, skip_frames = 1,
+                           interval = 1000/30, repeat = False, save = False, only_keypoints = False,
+                                kp_confidence = None, smoothed = True, bounding_box = None, plot_bbox = False):
+        shift = self.shift
+        box = math.ceil(math.sqrt(len(start)))
+        fig = plt.figure(figsize = (10,10))
+        gs1 = gridspec.GridSpec(box,box)
+        gs1.update(wspace=0, hspace=0)
+        ims = []
+        print('Animating..')
+        for i in range(0, duration, skip_frames):
+            ims_i = []
+            for j in range(len(start)):
+                # CHOOSE SUBPLOT
+                ax = plt.subplot(gs1[j])
+                ax.axis('off')
+                # PLOT FRAME
+                img_i_j = self.Video.capture_frame(start[j]+i)
+                frame_i_j = ax.imshow(img_i_j)
+                # LABELS
+                label_start_frame = ax.annotate(start[j], (4, 45), fontsize=12, color = 'white')
+                label_curr_frame = ax.annotate(start[j]+i, (4, 85), fontsize=9, color='white')
 
-##### test code for animation
+                if only_keypoints:
+                    # PLOT ALL 7 KEYPOINTS
+                    if smoothed:
+                        x_i = keypoints[start[j] + i - shift, 0, :]
+                        y_i = keypoints[start[j] + i - shift, 1, :]
+                        plot_kpoints = ax.scatter(x_i, y_i, c='cyan')
+                    else:
+                        x_i = keypoints[start[j] + i, 0, 0, :]
+                        y_i = keypoints[start[j] + i, 0, 1, :]
+                        con_score_i = kp_confidence[i, 0]
+                        plot_kpoints = ax.scatter(x_i, y_i, cmap = plt.cm.coolwarm, c = con_score_i)
+                    # COMBINE ALL ACTIONS
+                    ims_i.extend((frame_i_j, plot_kpoints, label_start_frame, label_curr_frame))
+                else:
+                    # PLOT CENTROID / NOSE
+                    x1, y1 = centroids[start[j] + i - shift, 0], centroids[start[j] + i - shift, 1]
+                    x2, y2 = keypoints[start[j] + i - shift, 0, 0], keypoints[start[j] + i - shift, 1, 0]
+                    centroid, = ax.plot(x1, y1, marker='o', c='cyan')
+                    nose, = ax.plot(x2, y2, marker='o', c='lime')
+                    # COMBINE ALL ACTIONS
+                    ims_i.extend((frame_i_j, centroid, nose, label_start_frame, label_curr_frame))
+                ####
+                # if plot_bbox:
+                #     x1, y1 = bounding_box[start[j] + i, 0], bounding_box[start[j] + i, 1]
+                #     x2, y2 = bounding_box[start[j] + i, 2], bounding_box[start[j] + i, 3]
+                #     w = x2 - x1
+                #     h = y2 - y1
+                #     rect = patches.Rectangle((x1, y1), w, h,linewidth=1,edgecolor='r',facecolor='none')
+                #     bbox = ax.add_patch(rect)
+                #     ims_i.append(bbox)
+                # ####
+            ims.append(ims_i)
+        Anim = animation.ArtistAnimation(fig, ims, interval = interval, blit = True, repeat = repeat, repeat_delay=3000)
+        if save: Anim.save(str(start) + '_' + str(duration) + '.mp4')
+        return Anim
 
-# fig = plt.figure(figsize=(10,10))
-
+    def animate_multi_view(self, start, duration, centroids, keypoints, skip_frames = 1,
+                           interval = 1000/30, repeat = False, save = False):
+        shift = self.shift
+        box = math.ceil(math.sqrt(len(start)))
+        fig = plt.figure(figsize = (10,10))
+        gs1 = gridspec.GridSpec(box,box)
+        gs1.update(wspace=0, hspace=0)
+        ims = []
+        print('Animating..')
+        for i in range(0, duration, skip_frames):
+            ims_i = []
+            for j in range(len(start)):
+                # CHOOSE SUBPLOT
+                ax = plt.subplot(gs1[j])
+                ax.axis('off')
+                # PLOT FRAME
+                img_i_j = self.Video.capture_frame(start[j]+i)
+                frame_i_j = ax.imshow(img_i_j)
+                # PLOT CENTROID / NOSE
+                x1 = centroids[start[j] + i - shift, 0]
+                y1 = centroids[start[j] + i - shift, 1]
+                x2 = keypoints[start[j] + i - shift, 0, 0]
+                y2 = keypoints[start[j] + i - shift, 1, 0]
+                centroid, = ax.plot(x1, y1, marker='o', c = 'blue')
+                nose, = ax.plot(x2, y2, marker='o', c = 'green')
+                # LABELS
+                label_start_frame = ax.annotate(start[j], (4, 45), fontsize=12, color = 'white')
+                label_curr_frame = ax.annotate(start[j]+i, (4, 85), fontsize=9, color='white')
+                # COMBINE ALL ACTIONS
+                ims_i.extend((frame_i_j, centroid, nose, label_start_frame, label_curr_frame))
+            ims.append(ims_i)
+        # Ac
+        Anim = animation.ArtistAnimation(fig, ims, interval = interval, blit = True, repeat = repeat, repeat_delay=3000)
+        if save: Anim.save(str(start) + '_' + str(duration) + '.mp4')
+        return Anim
 
